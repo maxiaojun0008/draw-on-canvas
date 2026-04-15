@@ -5,7 +5,8 @@ import {
   isPointInRotatedRect,
   normalizeAngle,
   toImagePoint,
-  toScreenPoint
+  toScreenPoint,
+  getRotatedRectControls
 } from './geometry';
 
 describe('geometry', () => {
@@ -26,6 +27,25 @@ describe('geometry', () => {
   it('normalizes angles', () => {
     expect(normalizeAngle(Math.PI * 3)).toBeCloseTo(Math.PI);
     expect(normalizeAngle(-Math.PI / 2)).toBeCloseTo(Math.PI * 1.5);
+  });
+
+
+
+  it('returns control points for rotated rect', () => {
+    const rrect = {
+      id: 'rr-controls',
+      type: 'rrect' as const,
+      cx: 100,
+      cy: 80,
+      w: 40,
+      h: 24,
+      angle: Math.PI / 8
+    };
+
+    const controls = getRotatedRectControls(rrect);
+    expect(controls.corners).toHaveLength(4);
+    expect(controls.rotationHandle).toHaveProperty('x');
+    expect(controls.rotationHandle).toHaveProperty('y');
   });
 
   it('calculates rotated rect geometry', () => {

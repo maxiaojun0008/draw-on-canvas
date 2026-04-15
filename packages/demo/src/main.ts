@@ -1,3 +1,4 @@
+import { parseAnnotationDocument } from '@draw-on-canvas/core';
 import type { Tool } from '@draw-on-canvas/core';
 import { createCanvas2DRenderer } from '@draw-on-canvas/canvas2d';
 
@@ -8,8 +9,9 @@ const exportBtn = document.querySelector<HTMLButtonElement>('#exportBtn');
 const importBtn = document.querySelector<HTMLButtonElement>('#importBtn');
 const undoBtn = document.querySelector<HTMLButtonElement>('#undoBtn');
 const redoBtn = document.querySelector<HTMLButtonElement>('#redoBtn');
+const resetViewBtn = document.querySelector<HTMLButtonElement>('#resetViewBtn');
 
-if (!canvas || !toolbar || !jsonBox || !exportBtn || !importBtn || !undoBtn || !redoBtn) {
+if (!canvas || !toolbar || !jsonBox || !exportBtn || !importBtn || !undoBtn || !redoBtn || !resetViewBtn) {
   throw new Error('Demo DOM initialization failed.');
 }
 
@@ -35,7 +37,7 @@ exportBtn.addEventListener('click', syncJson);
 
 importBtn.addEventListener('click', () => {
   try {
-    const doc = JSON.parse(jsonBox.value);
+    const doc = parseAnnotationDocument(JSON.parse(jsonBox.value));
     renderer.import(doc);
   } catch {
     alert('JSON 格式错误');
@@ -44,3 +46,5 @@ importBtn.addEventListener('click', () => {
 
 undoBtn.addEventListener('click', () => renderer.undo());
 redoBtn.addEventListener('click', () => renderer.redo());
+
+resetViewBtn.addEventListener('click', () => renderer.resetView());

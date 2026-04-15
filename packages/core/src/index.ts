@@ -1,4 +1,5 @@
 export * from './geometry';
+export * from './io';
 export * from './types';
 export * from './commands';
 export * from './store';

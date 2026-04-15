@@ -57,7 +57,7 @@
       <div class="panel">
         <div class="toolbar" id="toolbar"></div>
         <canvas id="canvas" width="960" height="540"></canvas>
-        <p class="muted">当前操作：点击画布可按工具创建标注；select 下可拖拽移动。快捷键：Delete 删除，Ctrl/Cmd+Z 撤销，Ctrl/Cmd+Shift+Z 重做。</p>
+        <p class="muted">当前操作：select 支持多选(Shift+点击)、拖拽移动、polygon 顶点拖拽、rrect 旋转/缩放手柄。空格+拖拽平移，滚轮缩放。快捷键：Delete 删除，Ctrl/Cmd+Z 撤销，Ctrl/Cmd+Shift+Z 重做。</p>
       </div>
       <div class="panel">
         <h3>JSON</h3>
@@ -66,6 +66,7 @@
           <button id="importBtn">导入</button>
           <button id="undoBtn">撤销</button>
           <button id="redoBtn">重做</button>
+          <button id="resetViewBtn">重置视图</button>
         </div>
         <textarea id="jsonBox"></textarea>
       </div>

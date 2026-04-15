@@ -6,9 +6,12 @@ import {
   addAnnotationCommand,
   createEditorStore,
   deleteAnnotationCommand,
+  getRotatedRectControls,
   getRotatedRectCorners,
   isPointInRect,
   isPointInRotatedRect,
+  toImagePoint,
+  toLocalRotatedRectPoint,
   updateAnnotationCommand
 } from '@draw-on-canvas/core';
 
@@ -18,6 +21,12 @@ export type CreateAnnotatorOptions = {
 };
 
 type ChangeHandler = (doc: AnnotationDocument) => void;
+
+type Viewport = {
+  scale: number;
+  offsetX: number;
+  offsetY: number;
+};
 
 const createDefaultDocument = (canvas: HTMLCanvasElement): AnnotationDocument => ({
   version: '0.1.0',
@@ -31,10 +40,11 @@ const createDefaultDocument = (canvas: HTMLCanvasElement): AnnotationDocument =>
 const drawAnnotation = (
   ctx: CanvasRenderingContext2D,
   annotation: Annotation,
-  selected: boolean
+  selected: boolean,
+  viewport: Viewport
 ) => {
   ctx.save();
-  ctx.lineWidth = selected ? 2 : 1;
+  ctx.lineWidth = selected ? 2 / viewport.scale : 1 / viewport.scale;
   ctx.strokeStyle = selected ? '#2563eb' : '#ef4444';
   ctx.fillStyle = selected ? 'rgba(37, 99, 235, 0.12)' : 'rgba(239, 68, 68, 0.12)';
 
@@ -61,6 +71,21 @@ const drawAnnotation = (
     ctx.closePath();
     ctx.fill();
     ctx.stroke();
+
+    if (selected) {
+      const controls = getRotatedRectControls(annotation);
+      ctx.fillStyle = '#1d4ed8';
+      controls.corners.forEach((corner) => {
+        ctx.beginPath();
+        ctx.arc(corner.x, corner.y, 5 / viewport.scale, 0, Math.PI * 2);
+        ctx.fill();
+      });
+
+      ctx.beginPath();
+      ctx.arc(controls.rotationHandle.x, controls.rotationHandle.y, 5 / viewport.scale, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
     ctx.restore();
     return;
   }
@@ -70,6 +95,7 @@ const drawAnnotation = (
       ctx.restore();
       return;
     }
+
     const [firstPoint, ...restPoints] = annotation.points;
     if (!firstPoint) {
       ctx.restore();
@@ -82,12 +108,22 @@ const drawAnnotation = (
     ctx.closePath();
     ctx.fill();
     ctx.stroke();
+
+    if (selected) {
+      ctx.fillStyle = '#1d4ed8';
+      annotation.points.forEach((point) => {
+        ctx.beginPath();
+        ctx.arc(point.x, point.y, 4 / viewport.scale, 0, Math.PI * 2);
+        ctx.fill();
+      });
+    }
+
     ctx.restore();
     return;
   }
 
   ctx.beginPath();
-  ctx.arc(annotation.x, annotation.y, 4, 0, Math.PI * 2);
+  ctx.arc(annotation.x, annotation.y, 4 / viewport.scale, 0, Math.PI * 2);
   ctx.fill();
   ctx.stroke();
   ctx.restore();
@@ -110,13 +146,13 @@ const hitTest = (annotations: Annotation[], x: number, y: number): string | null
 
     if (annotation.type === 'point') {
       const distance = Math.hypot(annotation.x - x, annotation.y - y);
-      if (distance <= 6) {
+      if (distance <= 8) {
         return annotation.id;
       }
     }
 
     if (annotation.type === 'polygon') {
-      const closeToVertex = annotation.points.some((point) => Math.hypot(point.x - x, point.y - y) <= 6);
+      const closeToVertex = annotation.points.some((point) => Math.hypot(point.x - x, point.y - y) <= 8);
       if (closeToVertex) {
         return annotation.id;
       }
@@ -125,7 +161,6 @@ const hitTest = (annotations: Annotation[], x: number, y: number): string | null
 
   return null;
 };
-
 
 const translateAnnotation = (annotation: Annotation, dx: number, dy: number): Annotation => {
   if (annotation.type === 'rect') {
@@ -146,6 +181,10 @@ const translateAnnotation = (annotation: Annotation, dx: number, dy: number): An
   };
 };
 
+const toggleId = (ids: string[], id: string): string[] => {
+  return ids.includes(id) ? ids.filter((existingId) => existingId !== id) : [...ids, id];
+};
+
 export const createCanvas2DRenderer = (
   canvas: HTMLCanvasElement,
   options: CreateAnnotatorOptions = {}
@@ -157,19 +196,63 @@ export const createCanvas2DRenderer = (
 
   const store = createEditorStore(options.initialDocument ?? createDefaultDocument(canvas));
   const changeHandlers = new Set<ChangeHandler>();
+  const viewport: Viewport = {
+    scale: 1,
+    offsetX: 0,
+    offsetY: 0
+  };
+
+  let draggingIds: string[] = [];
+  let draggingVertex: { annotationId: string; pointIndex: number } | null = null;
+  let rrectEditing: { annotationId: string; mode: 'rotate' | 'resize' } | null = null;
+  let lastPointer = { x: 0, y: 0 };
+  let isPanning = false;
+  let spacePressed = false;
+
+  const getImagePointFromEvent = (event: MouseEvent | WheelEvent) => {
+    const rect = canvas.getBoundingClientRect();
+    const screenPoint = {
+      x: event.clientX - rect.left,
+      y: event.clientY - rect.top
+    };
+
+    return {
+      screenPoint,
+      imagePoint: toImagePoint(screenPoint, viewport)
+    };
+  };
+
+  const findSelectedRRect = () => {
+    const state = store.getState();
+    if (state.selectedIds.length !== 1) {
+      return null;
+    }
+
+    const selected = state.doc.annotations.find((annotation) => annotation.id === state.selectedIds[0]);
+    if (!selected || selected.type !== 'rrect') {
+      return null;
+    }
+
+    return selected;
+  };
 
   const render = () => {
     const state = store.getState();
 
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
+    ctx.setTransform(viewport.scale, 0, 0, viewport.scale, viewport.offsetX, viewport.offsetY);
+
     if (options.image) {
-      ctx.drawImage(options.image, 0, 0, canvas.width, canvas.height);
+      ctx.drawImage(options.image, 0, 0, state.doc.imageMeta.width, state.doc.imageMeta.height);
     }
 
     state.doc.annotations.forEach((annotation) => {
-      drawAnnotation(ctx, annotation, state.selectedIds.includes(annotation.id));
+      drawAnnotation(ctx, annotation, state.selectedIds.includes(annotation.id), viewport);
     });
+
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
   };
 
   const notifyChange = () => {
@@ -182,54 +265,163 @@ export const createCanvas2DRenderer = (
     notifyChange();
   });
 
-  let draggingId: string | null = null;
-  let lastPointer = { x: 0, y: 0 };
-
   const onPointerDown = (event: MouseEvent) => {
-    const rect = canvas.getBoundingClientRect();
-    const x = event.clientX - rect.left;
-    const y = event.clientY - rect.top;
-    const state = store.getState();
+    const { screenPoint, imagePoint } = getImagePointFromEvent(event);
+    lastPointer = screenPoint;
 
+    if (spacePressed || event.button === 1) {
+      isPanning = true;
+      return;
+    }
+
+    const state = store.getState();
     if (state.activeTool !== 'select') {
       return;
     }
 
-    const id = hitTest(state.doc.annotations, x, y);
+    const selectedRRect = findSelectedRRect();
+    if (selectedRRect) {
+      const controls = getRotatedRectControls(selectedRRect);
+      const rotationDistance = Math.hypot(
+        controls.rotationHandle.x - imagePoint.x,
+        controls.rotationHandle.y - imagePoint.y
+      );
+      if (rotationDistance <= 10 / viewport.scale) {
+        rrectEditing = { annotationId: selectedRRect.id, mode: 'rotate' };
+        return;
+      }
+
+      const hitCorner = controls.corners.some(
+        (corner) => Math.hypot(corner.x - imagePoint.x, corner.y - imagePoint.y) <= 10 / viewport.scale
+      );
+      if (hitCorner) {
+        rrectEditing = { annotationId: selectedRRect.id, mode: 'resize' };
+        return;
+      }
+    }
+
+    const selectedPolygons = state.doc.annotations.filter(
+      (annotation) => annotation.type === 'polygon' && state.selectedIds.includes(annotation.id)
+    );
+
+    for (const polygon of selectedPolygons) {
+      const pointIndex = polygon.points.findIndex(
+        (point) => Math.hypot(point.x - imagePoint.x, point.y - imagePoint.y) <= 10 / viewport.scale
+      );
+      if (pointIndex >= 0) {
+        draggingVertex = { annotationId: polygon.id, pointIndex };
+        return;
+      }
+    }
+
+    const id = hitTest(state.doc.annotations, imagePoint.x, imagePoint.y);
+
     if (!id) {
-      store.setSelectedIds([]);
+      if (!event.shiftKey) {
+        store.setSelectedIds([]);
+      }
       return;
     }
 
-    draggingId = id;
-    lastPointer = { x, y };
-    store.setSelectedIds([id]);
+    const nextSelected = event.shiftKey ? toggleId(state.selectedIds, id) : [id];
+    store.setSelectedIds(nextSelected);
+    draggingIds = nextSelected;
   };
 
   const onPointerMove = (event: MouseEvent) => {
-    if (!draggingId) {
+    const { screenPoint, imagePoint } = getImagePointFromEvent(event);
+
+    if (isPanning) {
+      const dx = screenPoint.x - lastPointer.x;
+      const dy = screenPoint.y - lastPointer.y;
+      viewport.offsetX += dx;
+      viewport.offsetY += dy;
+      lastPointer = screenPoint;
+      render();
       return;
     }
 
-    const rect = canvas.getBoundingClientRect();
-    const x = event.clientX - rect.left;
-    const y = event.clientY - rect.top;
-    const dx = x - lastPointer.x;
-    const dy = y - lastPointer.y;
+    if (draggingVertex) {
+      store.execute(
+        updateAnnotationCommand(draggingVertex.annotationId, (annotation) => {
+          if (annotation.type !== 'polygon') {
+            return annotation;
+          }
+
+          return {
+            ...annotation,
+            points: annotation.points.map((point, index) => {
+              if (index !== draggingVertex.pointIndex) {
+                return point;
+              }
+
+              return { x: imagePoint.x, y: imagePoint.y };
+            })
+          };
+        })
+      );
+      return;
+    }
+
+    if (rrectEditing) {
+      store.execute(
+        updateAnnotationCommand(rrectEditing.annotationId, (annotation) => {
+          if (annotation.type !== 'rrect') {
+            return annotation;
+          }
+
+          if (rrectEditing.mode === 'rotate') {
+            const angle = Math.atan2(imagePoint.y - annotation.cy, imagePoint.x - annotation.cx) + Math.PI / 2;
+            return {
+              ...annotation,
+              angle
+            };
+          }
+
+          const local = toLocalRotatedRectPoint(imagePoint, annotation);
+          const width = Math.max(Math.abs(local.x - annotation.cx) * 2, 8 / viewport.scale);
+          const height = Math.max(Math.abs(local.y - annotation.cy) * 2, 8 / viewport.scale);
+          return {
+            ...annotation,
+            w: width,
+            h: height
+          };
+        })
+      );
+      return;
+    }
+
+    if (draggingIds.length === 0) {
+      return;
+    }
+
+    const prevImage = toImagePoint(lastPointer, viewport);
+    const dx = imagePoint.x - prevImage.x;
+    const dy = imagePoint.y - prevImage.y;
 
     if (dx === 0 && dy === 0) {
       return;
     }
 
-    store.execute(updateAnnotationCommand(draggingId, (annotation) => translateAnnotation(annotation, dx, dy)));
-    lastPointer = { x, y };
+    draggingIds.forEach((id) => {
+      store.execute(updateAnnotationCommand(id, (annotation) => translateAnnotation(annotation, dx, dy)));
+    });
+
+    lastPointer = screenPoint;
   };
 
   const onPointerUp = () => {
-    draggingId = null;
+    draggingIds = [];
+    draggingVertex = null;
+    rrectEditing = null;
+    isPanning = false;
   };
 
   const onKeyDown = (event: KeyboardEvent) => {
+    if (event.code === 'Space') {
+      spacePressed = true;
+    }
+
     const state = store.getState();
     if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'z') {
       event.preventDefault();
@@ -247,15 +439,29 @@ export const createCanvas2DRenderer = (
     }
   };
 
+  const onKeyUp = (event: KeyboardEvent) => {
+    if (event.code === 'Space') {
+      spacePressed = false;
+    }
+  };
+
+  const onWheel = (event: WheelEvent) => {
+    event.preventDefault();
+    const { screenPoint, imagePoint } = getImagePointFromEvent(event);
+    const factor = event.deltaY > 0 ? 0.95 : 1.05;
+    const nextScale = Math.min(Math.max(viewport.scale * factor, 0.2), 5);
+
+    viewport.offsetX = screenPoint.x - imagePoint.x * nextScale;
+    viewport.offsetY = screenPoint.y - imagePoint.y * nextScale;
+    viewport.scale = nextScale;
+    render();
+  };
+
   const onClick = (event: MouseEvent) => {
-    const rect = canvas.getBoundingClientRect();
-    const x = event.clientX - rect.left;
-    const y = event.clientY - rect.top;
+    const { imagePoint } = getImagePointFromEvent(event);
     const state = store.getState();
 
     if (state.activeTool === 'select') {
-      const id = hitTest(state.doc.annotations, x, y);
-      store.setSelectedIds(id ? [id] : []);
       return;
     }
 
@@ -264,8 +470,8 @@ export const createCanvas2DRenderer = (
         addAnnotationCommand({
           id: crypto.randomUUID(),
           type: 'rect',
-          x: x - 40,
-          y: y - 20,
+          x: imagePoint.x - 40,
+          y: imagePoint.y - 20,
           w: 80,
           h: 40
         })
@@ -278,8 +484,8 @@ export const createCanvas2DRenderer = (
         addAnnotationCommand({
           id: crypto.randomUUID(),
           type: 'rrect',
-          cx: x,
-          cy: y,
+          cx: imagePoint.x,
+          cy: imagePoint.y,
           w: 90,
           h: 40,
           angle: Math.PI / 8
@@ -293,8 +499,8 @@ export const createCanvas2DRenderer = (
         addAnnotationCommand({
           id: crypto.randomUUID(),
           type: 'point',
-          x,
-          y
+          x: imagePoint.x,
+          y: imagePoint.y
         })
       );
       return;
@@ -305,9 +511,9 @@ export const createCanvas2DRenderer = (
         id: crypto.randomUUID(),
         type: 'polygon',
         points: [
-          { x, y: y - 20 },
-          { x: x + 25, y: y + 20 },
-          { x: x - 25, y: y + 20 }
+          { x: imagePoint.x, y: imagePoint.y - 20 },
+          { x: imagePoint.x + 25, y: imagePoint.y + 20 },
+          { x: imagePoint.x - 25, y: imagePoint.y + 20 }
         ]
       })
     );
@@ -317,6 +523,8 @@ export const createCanvas2DRenderer = (
   canvas.addEventListener('mousemove', onPointerMove);
   window.addEventListener('mouseup', onPointerUp);
   window.addEventListener('keydown', onKeyDown);
+  window.addEventListener('keyup', onKeyUp);
+  canvas.addEventListener('wheel', onWheel, { passive: false });
   canvas.addEventListener('click', onClick);
   render();
 
@@ -351,11 +559,19 @@ export const createCanvas2DRenderer = (
     redo() {
       store.redo();
     },
+    resetView() {
+      viewport.scale = 1;
+      viewport.offsetX = 0;
+      viewport.offsetY = 0;
+      render();
+    },
     destroy() {
       canvas.removeEventListener('mousedown', onPointerDown);
       canvas.removeEventListener('mousemove', onPointerMove);
       window.removeEventListener('mouseup', onPointerUp);
       window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('keyup', onKeyUp);
+      canvas.removeEventListener('wheel', onWheel);
       canvas.removeEventListener('click', onClick);
       unsubscribe();
       changeHandlers.clear();
