@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>draw-on-canvas demo</title>
+    <style>
+      body {
+        font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+        margin: 0;
+        padding: 16px;
+        background: #f8fafc;
+      }
+      .layout {
+        display: grid;
+        grid-template-columns: 1fr 320px;
+        gap: 16px;
+      }
+      .panel {
+        background: #fff;
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        padding: 12px;
+      }
+      .toolbar {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        margin-bottom: 8px;
+      }
+      button {
+        border: 1px solid #cbd5e1;
+        background: #fff;
+        border-radius: 6px;
+        padding: 6px 10px;
+        cursor: pointer;
+      }
+      #canvas {
+        border: 1px solid #cbd5e1;
+        background: white;
+        width: 100%;
+        max-width: 960px;
+      }
+      textarea {
+        width: 100%;
+        min-height: 320px;
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      }
+      .muted {
+        color: #64748b;
+        font-size: 12px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="layout">
+      <div class="panel">
+        <div class="toolbar" id="toolbar"></div>
+        <canvas id="canvas" width="960" height="540"></canvas>
+        <p class="muted">当前操作：select 支持多选(Shift+点击)、拖拽移动、polygon 顶点拖拽、rrect 旋转/缩放手柄。空格+拖拽平移，滚轮缩放。快捷键：Delete 删除，Ctrl/Cmd+Z 撤销，Ctrl/Cmd+Shift+Z 重做。</p>
+      </div>
+      <div class="panel">
+        <h3>JSON</h3>
+        <div class="toolbar">
+          <button id="exportBtn">导出</button>
+          <button id="importBtn">导入</button>
+          <button id="undoBtn">撤销</button>
+          <button id="redoBtn">重做</button>
+          <button id="resetViewBtn">重置视图</button>
+        </div>
+        <textarea id="jsonBox"></textarea>
+      </div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
