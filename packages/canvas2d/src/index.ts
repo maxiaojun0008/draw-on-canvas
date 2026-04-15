@@ -126,6 +126,26 @@ const hitTest = (annotations: Annotation[], x: number, y: number): string | null
   return null;
 };
 
+
+const translateAnnotation = (annotation: Annotation, dx: number, dy: number): Annotation => {
+  if (annotation.type === 'rect') {
+    return { ...annotation, x: annotation.x + dx, y: annotation.y + dy };
+  }
+
+  if (annotation.type === 'rrect') {
+    return { ...annotation, cx: annotation.cx + dx, cy: annotation.cy + dy };
+  }
+
+  if (annotation.type === 'point') {
+    return { ...annotation, x: annotation.x + dx, y: annotation.y + dy };
+  }
+
+  return {
+    ...annotation,
+    points: annotation.points.map((point) => ({ x: point.x + dx, y: point.y + dy }))
+  };
+};
+
 export const createCanvas2DRenderer = (
   canvas: HTMLCanvasElement,
   options: CreateAnnotatorOptions = {}
@@ -161,6 +181,71 @@ export const createCanvas2DRenderer = (
     render();
     notifyChange();
   });
+
+  let draggingId: string | null = null;
+  let lastPointer = { x: 0, y: 0 };
+
+  const onPointerDown = (event: MouseEvent) => {
+    const rect = canvas.getBoundingClientRect();
+    const x = event.clientX - rect.left;
+    const y = event.clientY - rect.top;
+    const state = store.getState();
+
+    if (state.activeTool !== 'select') {
+      return;
+    }
+
+    const id = hitTest(state.doc.annotations, x, y);
+    if (!id) {
+      store.setSelectedIds([]);
+      return;
+    }
+
+    draggingId = id;
+    lastPointer = { x, y };
+    store.setSelectedIds([id]);
+  };
+
+  const onPointerMove = (event: MouseEvent) => {
+    if (!draggingId) {
+      return;
+    }
+
+    const rect = canvas.getBoundingClientRect();
+    const x = event.clientX - rect.left;
+    const y = event.clientY - rect.top;
+    const dx = x - lastPointer.x;
+    const dy = y - lastPointer.y;
+
+    if (dx === 0 && dy === 0) {
+      return;
+    }
+
+    store.execute(updateAnnotationCommand(draggingId, (annotation) => translateAnnotation(annotation, dx, dy)));
+    lastPointer = { x, y };
+  };
+
+  const onPointerUp = () => {
+    draggingId = null;
+  };
+
+  const onKeyDown = (event: KeyboardEvent) => {
+    const state = store.getState();
+    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'z') {
+      event.preventDefault();
+      if (event.shiftKey) {
+        store.redo();
+      } else {
+        store.undo();
+      }
+      return;
+    }
+
+    if ((event.key === 'Delete' || event.key === 'Backspace') && state.selectedIds.length > 0) {
+      event.preventDefault();
+      state.selectedIds.forEach((id) => store.execute(deleteAnnotationCommand(id)));
+    }
+  };
 
   const onClick = (event: MouseEvent) => {
     const rect = canvas.getBoundingClientRect();
@@ -228,6 +313,10 @@ export const createCanvas2DRenderer = (
     );
   };
 
+  canvas.addEventListener('mousedown', onPointerDown);
+  canvas.addEventListener('mousemove', onPointerMove);
+  window.addEventListener('mouseup', onPointerUp);
+  window.addEventListener('keydown', onKeyDown);
   canvas.addEventListener('click', onClick);
   render();
 
@@ -263,6 +352,10 @@ export const createCanvas2DRenderer = (
       store.redo();
     },
     destroy() {
+      canvas.removeEventListener('mousedown', onPointerDown);
+      canvas.removeEventListener('mousemove', onPointerMove);
+      window.removeEventListener('mouseup', onPointerUp);
+      window.removeEventListener('keydown', onKeyDown);
       canvas.removeEventListener('click', onClick);
       unsubscribe();
       changeHandlers.clear();
