@@ -1,8 +1,9 @@
-export type Tool = 'select' | 'rect' | 'rrect' | 'polygon' | 'point';
+export * from './geometry';
+export * from './types';
+export * from './commands';
+export * from './store';
 
-export interface CoreVersion {
-  version: string;
-}
+import { CoreVersion } from './types';
 
 export const CORE_VERSION: CoreVersion = {
   version: '0.1.0'

@@ -9,6 +9,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@draw-on-canvas/canvas2d": "workspace:*"
+    "@draw-on-canvas/canvas2d": "workspace:*",
+    "@draw-on-canvas/core": "workspace:*"
   }
 }
